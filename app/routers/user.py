@@ -588,7 +588,12 @@ def add_user(
                 service=service,
             )
         except UsersLimitReachedError as exc:
-            report.admin_users_limit_reached(admin, exc.limit, exc.current_active)
+            report.queue_report(
+                report.admin_users_limit_reached,
+                admin=admin,
+                limit=exc.limit,
+                current=exc.current_active,
+            )
             db.rollback()
             raise HTTPException(status_code=400, detail=str(exc))
         except ValueError as exc:
@@ -600,10 +605,10 @@ def add_user(
 
         bg.add_task(xray.operations.add_user, dbuser=dbuser)
         user = _create_user_response(request, dbuser)
-        report.user_created(user=user, user_id=dbuser.id, by=admin, user_admin=dbuser.admin)
+        report.queue_report(report.user_created, user=user, user_id=dbuser.id, by=admin, user_admin=dbuser.admin)
         if user.next_plans or user.next_plan:
             total_rules = len(user.next_plans) if getattr(user, "next_plans", None) else 1
-            bg.add_task(
+            report.queue_report(
                 report.user_auto_renew_set,
                 user=user,
                 user_admin=dbuser.admin,
@@ -686,7 +691,12 @@ def add_user(
             )
         dbuser = crud.create_user(db, new_user, admin=db_admin)
     except UsersLimitReachedError as exc:
-        report.admin_users_limit_reached(admin, exc.limit, exc.current_active)
+        report.queue_report(
+            report.admin_users_limit_reached,
+            admin=admin,
+            limit=exc.limit,
+            current=exc.current_active,
+        )
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
@@ -698,7 +708,7 @@ def add_user(
 
     bg.add_task(xray.operations.add_user, dbuser=dbuser)
     user = _create_user_response(request, dbuser)
-    report.user_created(user=user, user_id=dbuser.id, by=admin, user_admin=dbuser.admin)
+    report.queue_report(report.user_created, user=user, user_id=dbuser.id, by=admin, user_admin=dbuser.admin)
     logger.info(f'New user "{dbuser.username}" added')
     return _sanitize_user_response(admin, user)
 
@@ -911,7 +921,12 @@ def modify_user(
             admin=db_admin,
         )
     except UsersLimitReachedError as exc:
-        report.admin_users_limit_reached(admin, exc.limit, exc.current_active)
+        report.queue_report(
+            report.admin_users_limit_reached,
+            admin=admin,
+            limit=exc.limit,
+            current=exc.current_active,
+        )
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
@@ -932,10 +947,10 @@ def modify_user(
     ]:
         bg.add_task(xray.operations.add_user, dbuser=dbuser)
 
-    bg.add_task(report.user_updated, user=user, user_admin=dbuser.admin, by=admin)
+    report.queue_report(report.user_updated, user=user, user_admin=dbuser.admin, by=admin)
     if user.next_plans or user.next_plan:
         total_rules = len(user.next_plans) if getattr(user, "next_plans", None) else 1
-        bg.add_task(
+        report.queue_report(
             report.user_auto_renew_set,
             user=user,
             user_admin=dbuser.admin,
@@ -946,7 +961,7 @@ def modify_user(
     logger.info(f'User "{user.username}" modified')
 
     if user.status != old_status:
-        bg.add_task(
+        report.queue_report(
             report.status_change,
             username=user.username,
             status=user.status,
@@ -977,7 +992,12 @@ def remove_user(
     crud.remove_user(db, dbuser)
     bg.add_task(xray.operations.remove_user, dbuser=dbuser)
 
-    bg.add_task(report.user_deleted, username=dbuser.username, user_admin=Admin.model_validate(dbuser.admin), by=admin)
+    report.queue_report(
+        report.user_deleted,
+        username=dbuser.username,
+        user_admin=Admin.model_validate(dbuser.admin),
+        by=admin,
+    )
 
     logger.info(f'User "{dbuser.username}" deleted')
     return {"detail": "User successfully deleted"}
@@ -1013,14 +1033,19 @@ def reset_user_data_usage(
     try:
         dbuser = crud.reset_user_data_usage(db=db, dbuser=dbuser)
     except UsersLimitReachedError as exc:
-        report.admin_users_limit_reached(admin, exc.limit, exc.current_active)
+        report.queue_report(
+            report.admin_users_limit_reached,
+            admin=admin,
+            limit=exc.limit,
+            current=exc.current_active,
+        )
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
     if dbuser.status in [UserStatus.active, UserStatus.on_hold]:
         bg.add_task(xray.operations.add_user, dbuser=dbuser)
 
     user = _user_response(request, dbuser)
-    bg.add_task(report.user_data_usage_reset, user=user, user_admin=dbuser.admin, by=admin)
+    report.queue_report(report.user_data_usage_reset, user=user, user_admin=dbuser.admin, by=admin)
 
     logger.info(f'User "{dbuser.username}"\'s usage was reset')
     return _sanitize_user_response(admin, user)
@@ -1052,7 +1077,7 @@ def revoke_user_subscription(
     if dbuser.status in [UserStatus.active, UserStatus.on_hold]:
         bg.add_task(xray.operations.update_user, dbuser=dbuser)
     user = _user_response(request, dbuser)
-    bg.add_task(report.user_subscription_revoked, user=user, user_admin=dbuser.admin, by=admin)
+    report.queue_report(report.user_subscription_revoked, user=user, user_admin=dbuser.admin, by=admin)
 
     logger.info(f'User "{dbuser.username}" subscription revoked')
 
@@ -1392,7 +1417,12 @@ def perform_users_bulk_action(
                     crud.refresh_service_users_by_id(db, destination_service.id)
                 detail = "Users moved to target service"
     except UsersLimitReachedError as exc:
-        report.admin_users_limit_reached(admin, exc.limit, exc.current_active)
+        report.queue_report(
+            report.admin_users_limit_reached,
+            admin=admin,
+            limit=exc.limit,
+            current=exc.current_active,
+        )
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1451,7 +1481,12 @@ def active_next_plan(
     try:
         dbuser = crud.reset_user_by_next(db=db, dbuser=dbuser)
     except UsersLimitReachedError as exc:
-        report.admin_users_limit_reached(admin, exc.limit, exc.current_active)
+        report.queue_report(
+            report.admin_users_limit_reached,
+            admin=admin,
+            limit=exc.limit,
+            current=exc.current_active,
+        )
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1465,7 +1500,7 @@ def active_next_plan(
         bg.add_task(xray.operations.add_user, dbuser=dbuser)
 
     user = _user_response(request, dbuser)
-    bg.add_task(
+    report.queue_report(
         report.user_data_reset_by_next,
         user=user,
         user_admin=dbuser.admin,
@@ -1559,7 +1594,7 @@ def delete_expired_users(
 
     for removed_user in removed_users:
         logger.info(f'User "{removed_user}" deleted')
-        bg.add_task(
+        report.queue_report(
             report.user_deleted,
             username=removed_user,
             user_admin=next((u.admin for u in expired_users if u.username == removed_user), None),

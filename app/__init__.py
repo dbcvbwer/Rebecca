@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 import warnings
 from pathlib import Path
 
@@ -78,6 +79,44 @@ else:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def log_request_failures(request: Request, call_next):
+        started_at = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            elapsed = time.perf_counter() - started_at
+            logger.exception(
+                "Unhandled request error method=%s path=%s client=%s elapsed=%.3fs",
+                request.method,
+                request.url.path,
+                request.client.host if request.client else "-",
+                elapsed,
+            )
+            raise
+
+        elapsed = time.perf_counter() - started_at
+        if response.status_code >= 500:
+            logger.error(
+                "Request completed with server error status=%s method=%s path=%s client=%s elapsed=%.3fs",
+                response.status_code,
+                request.method,
+                request.url.path,
+                request.client.host if request.client else "-",
+                elapsed,
+            )
+        elif elapsed >= 5:
+            logger.warning(
+                "Slow request method=%s path=%s client=%s status=%s elapsed=%.3fs",
+                request.method,
+                request.url.path,
+                request.client.host if request.client else "-",
+                response.status_code,
+                elapsed,
+            )
+        return response
+
     import dashboard  # noqa: F401
     from app import jobs, routers, telegram  # noqa
     from app.routers import api_router  # noqa

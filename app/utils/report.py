@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore
 from typing import Optional
 
 from app import runtime
@@ -22,8 +25,40 @@ from app.utils.notification import (
     UserUpdated,
     notify,
 )
+from config import TELEGRAM_REPORT_QUEUE_LIMIT, TELEGRAM_REPORT_WORKERS
 
 _telegram_warning_cache: set[str] = set()
+_REPORT_WORKERS = max(1, int(TELEGRAM_REPORT_WORKERS or 1))
+_REPORT_QUEUE_LIMIT = max(_REPORT_WORKERS, int(TELEGRAM_REPORT_QUEUE_LIMIT or _REPORT_WORKERS))
+_report_executor = ThreadPoolExecutor(max_workers=_REPORT_WORKERS, thread_name_prefix="report")
+_report_slots = BoundedSemaphore(_REPORT_QUEUE_LIMIT)
+
+
+def _report_name(func: Callable[..., object]) -> str:
+    return getattr(func, "__name__", func.__class__.__name__)
+
+
+def _run_queued_report(func: Callable[..., object], args: tuple, kwargs: dict) -> None:
+    try:
+        func(*args, **kwargs)
+    except Exception:
+        runtime.logger.exception("Queued report task '%s' failed", _report_name(func))
+
+
+def queue_report(func: Callable[..., object], *args, **kwargs) -> bool:
+    if not _report_slots.acquire(blocking=False):
+        runtime.logger.warning("Report queue is full; dropping report task '%s'", _report_name(func))
+        return False
+
+    try:
+        future = _report_executor.submit(_run_queued_report, func, args, kwargs)
+    except Exception:
+        _report_slots.release()
+        runtime.logger.exception("Failed to queue report task '%s'", _report_name(func))
+        return False
+
+    future.add_done_callback(lambda _future: _report_slots.release())
+    return True
 
 
 def _call_telegram(method_name: str, *args, **kwargs) -> bool:

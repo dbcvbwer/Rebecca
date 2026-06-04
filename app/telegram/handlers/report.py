@@ -14,6 +14,7 @@ from app.models.user import UserDataLimitResetStrategy
 from app.telegram import ensure_forum_topic, get_bot
 from app.telegram.utils.keyboard import BotKeyboard
 from app.utils.system import readable_size
+from config import TELEGRAM_REPORT_SEND_TIMEOUT_SECONDS
 
 
 CATEGORY_USERS = "users"
@@ -24,6 +25,7 @@ CATEGORY_ADMINS = "admins"
 CATEGORY_ERRORS = "errors"
 
 _MAX_RATE_LIMIT_DELAY = 60
+_SEND_TIMEOUT_SECONDS = max(1, int(TELEGRAM_REPORT_SEND_TIMEOUT_SECONDS or 1))
 
 _last_telegram_error: Optional[Dict[str, Any]] = None
 
@@ -166,6 +168,7 @@ def _dispatch(
     def _send_to(target_chat_id: int, kwargs: dict, target_desc: str) -> None:
         nonlocal delivered, last_error
         send_kwargs = dict(kwargs)
+        send_kwargs.setdefault("timeout", _SEND_TIMEOUT_SECONDS)
 
         def _call() -> None:
             bot_instance.send_message(target_chat_id, text, **send_kwargs)
