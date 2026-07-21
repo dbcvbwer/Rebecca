@@ -1,6 +1,7 @@
 ARG PYTHON_VERSION=3.13
 
 FROM ghcr.io/astral-sh/uv:python$PYTHON_VERSION-bookworm-slim AS builder
+
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/rebecca/install_latest_xray.sh /tmp/install_latest_xray.sh
-
 RUN sed -i 's/\r$//' /tmp/install_latest_xray.sh \
     && bash /tmp/install_latest_xray.sh \
     && apt-get remove --purge -y curl unzip \
@@ -22,14 +22,14 @@ RUN sed -i 's/\r$//' /tmp/install_latest_xray.sh \
 
 WORKDIR /build
 
-RUN --mount=type=cache,target=/root/.cache/uv
-    ...
- 
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --no-dev
 
 ADD . /build
 
-RUN --mount=type=cache,target=/root/.cache/uv
-    ...
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache \
     uv sync --frozen --no-dev
 
 FROM python:$PYTHON_VERSION-slim-bookworm
@@ -45,7 +45,6 @@ COPY --from=builder /usr/local/share/xray /usr/local/share/xray
 COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
 
 WORKDIR /code
-
 ENV PATH="/code/.venv/bin:$PATH"
 
 RUN find /code/scripts -type f -name '*.sh' -exec sed -i 's/\r$//' {} + \
