@@ -22,15 +22,12 @@ RUN sed -i 's/\r$//' /tmp/install_latest_xray.sh \
 
 WORKDIR /build
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
+COPY uv.lock pyproject.toml /build/
+RUN uv sync --frozen --no-install-project --no-dev
 
 ADD . /build
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 FROM python:$PYTHON_VERSION-slim-bookworm
 
