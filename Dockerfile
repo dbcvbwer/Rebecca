@@ -29,6 +29,17 @@ ADD . /build
 
 RUN uv sync --frozen --no-dev
 
+FROM node:20-bookworm-slim AS dashboard-builder
+
+WORKDIR /dashboard
+COPY dashboard/package.json dashboard/package-lock.json* ./
+RUN npm ci
+
+COPY dashboard ./
+ENV VITE_BASE_API=/api/
+RUN npm run build -- --outDir build --assetsDir statics \
+    && cp ./build/index.html ./build/404.html
+
 FROM python:$PYTHON_VERSION-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -40,6 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /build /code
 COPY --from=builder /usr/local/share/xray /usr/local/share/xray
 COPY --from=builder /usr/local/bin/xray /usr/local/bin/xray
+COPY --from=dashboard-builder /dashboard/build /code/dashboard/build
 
 WORKDIR /code
 ENV PATH="/code/.venv/bin:$PATH"
