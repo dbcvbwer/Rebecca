@@ -100,7 +100,7 @@ Then, navigate to {click.style(f"http://127.0.0.1:{UVICORN_PORT}", bold=True)} o
 
     try:
        uvicorn.run(
-    "main:app", **bind_args, workers=1, reload=False, log_level=logging.DEBUG if DEBUG else logging.INFO
+    "main:app", **bind_args, workers=1, reload=DEBUG, log_level=logging.DEBUG if DEBUG else logging.INFO
 )
     except FileNotFoundError:  # to prevent error on removing unix sock
         pass
